@@ -4,7 +4,7 @@ import json
 
 app = FastAPI(title="Background Task API", version="1.0.0")
 
-r = redis.Redis(host='localhost', port=6379, db=1)
+r = redis.Redis(host='redis', port=6379, db=1)
 
 @app.get("/")
 async def root():
