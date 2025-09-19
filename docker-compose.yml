@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  fastapi-app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - HYPERBROWSER_API_KEY=${HYPERBROWSER_API_KEY}
+    env_file:
+      - .env
+    restart: unless-stopped
+    depends_on:
+      - redis
+
+  celery-worker:
+    build: .
+    command: celery -A celery_worker worker --loglevel=info --concurrency=2
+    environment:
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - HYPERBROWSER_API_KEY=${HYPERBROWSER_API_KEY}
+    env_file:
+      - .env
+    depends_on:
+      - redis
+
+  celery-beat:
+    build: .
+    command: celery -A celery_worker beat --loglevel=info
+    environment:
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - HYPERBROWSER_API_KEY=${HYPERBROWSER_API_KEY}
+    env_file:
+      - .env
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:latest
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
