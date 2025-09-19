@@ -1,3 +1,4 @@
+import os
 from celery import Celery
 from gemini import run_search
 import redis
@@ -5,8 +6,8 @@ import json
 
 celery_app = Celery(
     "tasks",
-    broker="redis://localhost:6379/0",
-    backend="redis://localhost:6379/0"
+    broker=os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0"),
+    backend=os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")
 )
 
 r = redis.Redis(host='localhost', port=6379, db=1)

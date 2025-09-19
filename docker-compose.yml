@@ -8,33 +8,36 @@ services:
     environment:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - HYPERBROWSER_API_KEY=${HYPERBROWSER_API_KEY}
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL}
     env_file:
       - .env
     restart: unless-stopped
     depends_on:
       - redis
 
-  # celery-worker:
-  #   build: .
-  #   command: celery -A celery_worker worker --loglevel=info --concurrency=2
-  #   environment:
-  #     - GOOGLE_API_KEY=${GOOGLE_API_KEY}
-  #     - HYPERBROWSER_API_KEY=${HYPERBROWSER_API_KEY}
-  #   env_file:
-  #     - .env
-  #   depends_on:
-  #     - redis
+  celery-worker:
+    build: .
+    command: celery -A celery_worker worker --loglevel=info --concurrency=2
+    environment:
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - HYPERBROWSER_API_KEY=${HYPERBROWSER_API_KEY}
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL}
+    env_file:
+      - .env
+    depends_on:
+      - redis
 
-  # celery-beat:
-  #   build: .
-  #   command: celery -A celery_worker beat --loglevel=info
-  #   environment:
-  #     - GOOGLE_API_KEY=${GOOGLE_API_KEY}
-  #     - HYPERBROWSER_API_KEY=${HYPERBROWSER_API_KEY}
-  #   env_file:
-  #     - .env
-  #   depends_on:
-  #     - redis
+  celery-beat:
+    build: .
+    command: celery -A celery_worker beat --loglevel=info
+    environment:
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - HYPERBROWSER_API_KEY=${HYPERBROWSER_API_KEY}
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL}
+    env_file:
+      - .env
+    depends_on:
+      - redis
 
   redis:
     image: redis:latest
