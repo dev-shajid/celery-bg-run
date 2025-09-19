@@ -43,9 +43,8 @@ async def run_search(task: str = 'give me price of samsung s24'):
         # Set up the BrowserProfile and BrowserSession
         profile = BrowserProfile()
         browser_session = BrowserSession(browser_profile=profile, cdp_url=cdp_url)
-
-        # Start the browser session
-        await browser_session.start()
+        
+        print("🚀 Browser session started.", session.live_url)
         
         agent = Agent(
             task=task,
