@@ -5,4 +5,5 @@ uvicorn==0.35.0
 celery
 pika
 hyperbrowser
-browser_use==0.7.1
+browser_use==0.7.9
+Pillow>=11.1.0

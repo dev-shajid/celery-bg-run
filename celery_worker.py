@@ -9,7 +9,8 @@ from pydantic_settings import BaseSettings
 from pydantic import Field
 from dotenv import load_dotenv
 
-from gemini import run_search  # Your async function
+from gemini import run_search 
+from cua import run_cua 
 
 load_dotenv()
 
@@ -113,7 +114,7 @@ def run_agent_task(self, user_id: int, task_data: str):
     try:
         set_user_running(user_id)
         logger.info(f"🚀 [RUN] User={user_id} starting task: {task_data}")
-        asyncio.run(run_search(task_data))
+        asyncio.run(run_cua())
         logger.info(f"✅ [DONE] User={user_id} completed task: {task_data}")
         return "done"
 
