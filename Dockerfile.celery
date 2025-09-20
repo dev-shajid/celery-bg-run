@@ -1,0 +1,32 @@
+FROM python:3.11-slim
+
+# Set working directory
+WORKDIR /app
+
+# Copy requirements
+COPY requirements.txt .
+
+# Install minimal system deps for Celery + Postgres
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy app code
+COPY . .
+
+# Start script
+RUN echo '#!/bin/bash' > /app/start_celery.sh && \
+    echo 'set -e' >> /app/start_celery.sh && \
+    echo 'if [ -f .env ]; then' >> /app/start_celery.sh && \
+    echo '  export $(grep -v "^#" .env | xargs)' >> /app/start_celery.sh && \
+    echo 'fi' >> /app/start_celery.sh && \
+    echo 'celery -A celery_worker beat -l info &' >> /app/start_celery.sh && \
+    echo 'celery -A celery_worker worker -Q agent_queue -l info' >> /app/start_celery.sh && \
+    echo 'wait' >> /app/start_celery.sh && \
+    chmod +x /app/start_celery.sh
+
+ENTRYPOINT ["/app/start_celery.sh"]

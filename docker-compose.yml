@@ -2,39 +2,44 @@ version: '3.8'
 
 services:
   fastapi-app:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fastapi_app
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - HYPERBROWSER_API_KEY=${HYPERBROWSER_API_KEY}
       - CELERY_BROKER_URL=${CELERY_BROKER_URL}
-    env_file:
-      - .env
     restart: unless-stopped
 
   celery-worker:
-    build: .
-    command: celery -A celery_worker worker --loglevel=info --concurrency=2
+    build:
+      context: .
+      dockerfile: Dockerfile.celery
+    container_name: celery_worker
+    command: /start_celery.sh
+    env_file:
+      - .env
     environment:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - HYPERBROWSER_API_KEY=${HYPERBROWSER_API_KEY}
       - CELERY_BROKER_URL=${CELERY_BROKER_URL}
-    env_file:
-      - .env
+    restart: unless-stopped
 
   celery-beat:
-    build: .
-    command: celery -A celery_worker beat --loglevel=info
+    build:
+      context: .
+      dockerfile: Dockerfile.celery
+    container_name: celery_beat
+    command: /start_celery.sh
+    env_file:
+      - .env
     environment:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - HYPERBROWSER_API_KEY=${HYPERBROWSER_API_KEY}
       - CELERY_BROKER_URL=${CELERY_BROKER_URL}
-    env_file:
-      - .env
-
-  # redis:
-  #   image: redis:latest
-  #   ports:
-  #     - "6379:6379"
-  #   restart: unless-stopped
+    restart: unless-stopped

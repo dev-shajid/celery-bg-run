@@ -26,25 +26,25 @@ llm = ChatGoogle(model='gemini-2.5-flash', api_key=api_key)
 
 async def run_search(task: str = 'give me price of samsung s24'):
     try:
-        # client = AsyncHyperbrowser(api_key=HYPERBROWSER_API_KEY)
+        client = AsyncHyperbrowser(api_key=HYPERBROWSER_API_KEY)
     
-        # # Create a Hyperbrowser session
-        # session = await client.sessions.create(
-        #     params=CreateSessionParams(
-        #         use_stealth=True,  # Enable stealth mode
-        #     )
-        # )
+        # Create a Hyperbrowser session
+        session = await client.sessions.create(
+            params=CreateSessionParams(
+                use_stealth=True,  # Enable stealth mode
+            )
+        )
 
         # Retrieve the CDP URL
-        # cdp_url = session.ws_endpoint
-        # if not cdp_url:
-        #     raise ValueError("Failed to retrieve CDP URL from Hyperbrowser session.")
+        cdp_url = session.ws_endpoint
+        if not cdp_url:
+            raise ValueError("Failed to retrieve CDP URL from Hyperbrowser session.")
 
         # Set up the BrowserProfile and BrowserSession
         profile = BrowserProfile()
-        browser_session = BrowserSession(browser_profile=profile)
+        browser_session = BrowserSession(browser_profile=profile, cdp_url=cdp_url)
         
-        # print("🚀 Browser session started.", session.live_url)
+        print("🚀 Browser session started.", session.live_url)
         
         agent = Agent(
             task=task,
@@ -56,7 +56,7 @@ async def run_search(task: str = 'give me price of samsung s24'):
     finally:
         # Close the browser session
         await browser_session.kill()
-        # await client.close()
+        await client.close()
         print("🔥 Browser session closed.")
 
 
