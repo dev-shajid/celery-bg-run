@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+celerybeat-schedule
+celerybeat.pid
+.env
+venv/
+*.db
+.DS_Store
+celerybeat-schedule-shm
+celerybeat-schedule-wal

@@ -3,6 +3,6 @@ pydantic==2.11.9
 pydantic_core==2.33.2
 uvicorn==0.35.0
 celery
-redis
+pika
 hyperbrowser
 browser_use==0.7.1

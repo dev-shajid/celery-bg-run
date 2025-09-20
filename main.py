@@ -1,16 +1,14 @@
 from fastapi import FastAPI
-import redis
-import json
+from celery_worker import enqueue_pending_task
 
 app = FastAPI(title="Background Task API", version="1.0.0")
 
-r = redis.Redis(host='redis', port=6379, db=1)
-
 @app.get("/")
-async def root():
-    return {"message": "FastAPI Browser Automation Server is running"}
+def root():
+    return {"status": "ok"}
 
 @app.post("/submit-task")
-async def submit_task(user_id: int, task: str):
-    r.rpush(f"user:{user_id}:pending", json.dumps({"task": task, "user_id": user_id}))
+def submit_task(user_id: int, task: str):
+    # Push to pending queue; scheduler will dispatch execution
+    enqueue_pending_task.delay(user_id, task)
     return {"status": "queued"}

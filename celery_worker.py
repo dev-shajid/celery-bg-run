@@ -1,76 +1,150 @@
+# celery_worker.py
+import asyncio
 import os
+from kombu import Queue
+from functools import lru_cache
 from celery import Celery
-from gemini import run_search
-import redis
-import json
+from celery.utils.log import get_task_logger
+from pydantic_settings import BaseSettings
+from pydantic import Field
+from dotenv import load_dotenv
 
-celery_app = Celery(
-    "tasks",
-    broker=os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0"),
-    backend=os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")
+from gemini import run_search  # Your async function
+
+load_dotenv()
+
+# ----------------- Settings -----------------
+class CelerySettings(BaseSettings):
+    CELERY_BROKER_URL: str = Field(..., env="CELERY_BROKER_URL")
+    WORKER_CONCURRENCY: int = Field(4, env="CELERY_WORKER_CONCURRENCY")
+
+    class Config:
+        extra = "allow"
+
+
+@lru_cache()
+def get_celery_settings():
+    return CelerySettings()
+
+
+settings = get_celery_settings()
+logger = get_task_logger(__name__)
+
+# ----------------- Celery app -----------------
+app = Celery("agent", broker=settings.CELERY_BROKER_URL)
+
+AGENT_QUEUE = "agent_queue"
+
+app.conf.task_queues = (Queue(AGENT_QUEUE),)
+app.conf.task_routes = {
+    "enqueue_pending_task": {"queue": AGENT_QUEUE},
+    "run_agent_task": {"queue": AGENT_QUEUE},
+    "check_pending_queues": {"queue": AGENT_QUEUE},
+}
+
+app.conf.update(
+    task_serializer="json",
+    accept_content=["json"],
+    result_serializer="json",
+    enable_utc=True,
+    task_acks_late=True,
+    worker_prefetch_multiplier=1,
+    worker_concurrency=settings.WORKER_CONCURRENCY,
+    broker_connection_retry_on_startup=True,
 )
 
-r = redis.Redis(host='localhost', port=6379, db=1)
+# ----------------- In-memory user queues & locks -----------------
+# WARNING: In-memory locks work per worker process. Multi-node requires distributed lock.
+USER_PENDING_TASKS = {}  # user_id -> list of task_data
+USER_RUNNING = {}  # user_id -> bool
 
-def get_running_task(user_id):
-    return r.get(f"user:{user_id}:running")
 
-def set_running_task(user_id, task_id):
-    r.set(f"user:{user_id}:running", task_id)
+def is_user_running(user_id: int) -> bool:
+    return USER_RUNNING.get(user_id, False)
 
-def clear_running_task(user_id):
-    r.delete(f"user:{user_id}:running")
 
-def queue_pending_task(user_id, task):
-    r.rpush(f"user:{user_id}:pending", json.dumps(task))
+def set_user_running(user_id: int) -> None:
+    USER_RUNNING[user_id] = True
 
-def pop_pending_task(user_id):
-    next_task = r.lpop(f"user:{user_id}:pending")
-    if next_task:
-        return json.loads(next_task)
-    return None
 
-@celery_app.task(bind=True)
-def run_agent_task(self, task: str, user_id: int):
-    # Only start if no running task for user
-    current_running = get_running_task(user_id)
-    if current_running and current_running != self.request.id:
-        # Already running, queue as pending
-        queue_pending_task(user_id, {"task": task, "user_id": user_id})
-        print(f"Queued task for user {user_id}: {self.request.id}")
-        return "queued"
-    # Mark as running
-    set_running_task(user_id, self.request.id)
-    import asyncio
+def clear_user_running(user_id: int) -> None:
+    USER_RUNNING[user_id] = False
+
+
+def add_pending_task(user_id: int, task_data: str) -> None:
+    if user_id not in USER_PENDING_TASKS:
+        USER_PENDING_TASKS[user_id] = []
+    USER_PENDING_TASKS[user_id].append(task_data)
+
+
+def pop_pending_task(user_id: int) -> str | None:
+    tasks = USER_PENDING_TASKS.get(user_id)
+    if not tasks:
+        return None
+    task = tasks.pop(0)
+    if not tasks:
+        USER_PENDING_TASKS.pop(user_id)
+    return task
+
+
+# ----------------- Celery tasks -----------------
+@app.task(name="enqueue_pending_task")
+def enqueue_pending_task(user_id: int, task_data: str):
+    """
+    Enqueue a user task into the in-memory queue.
+    """
+    add_pending_task(user_id, task_data)
+    logger.info(f"📝 [ENQUEUE] User={user_id} Task={task_data}")
+    return "queued"
+
+
+@app.task(bind=True, max_retries=3, name="run_agent_task")
+def run_agent_task(self, user_id: int, task_data: str):
+    """
+    Executes the async run_search function for a user.
+    Ensures only one task per user runs at a time on this worker.
+    """
+    if is_user_running(user_id):
+        # Already running: should not happen if scheduler is correct
+        logger.warning(f"⏳ [SKIP] User={user_id} task skipped, already running. Re-enqueueing...")
+        enqueue_pending_task.apply_async(args=[user_id, task_data])
+        return "requeued"
+
     try:
-        asyncio.run(run_search(task))
-        print(f"🔥Task for user {user_id} completed.")
+        set_user_running(user_id)
+        logger.info(f"🚀 [RUN] User={user_id} starting task: {task_data}")
+        asyncio.run(run_search(task_data))
+        logger.info(f"✅ [DONE] User={user_id} completed task: {task_data}")
+        return "done"
+
     except Exception as e:
-        print(f"❌ Error for user {user_id}: {e}")
-    # Clear running slot
-    clear_running_task(user_id)
-    # Start next pending task if available
-    next_task = pop_pending_task(user_id)
-    if next_task:
-        print(f"Dispatching next pending task for user {user_id}")
-        run_agent_task.delay(next_task['task'], user_id)
-    return "done"
+        logger.error(f"❌ [RUN-ERR] User={user_id} error: {e}")
+        raise self.retry(exc=e, countdown=60)
+
+    finally:
+        clear_user_running(user_id)
 
 
-@celery_app.on_after_configure.connect
-def setup_periodic_tasks(sender, **kwargs):
-    # Run every minute (adjust as needed)
-    sender.add_periodic_task(60.0, check_pending_queues.s(), name='Check pending queues every minute')
-
-@celery_app.task
+@app.task(name="check_pending_queues")
 def check_pending_queues():
-    print('🕣[Scheduler]: Checking pending queues...')
-    # Scan all user pending queues
-    for key in r.scan_iter("user:*:pending"):
-        user_id = int(key.decode().split(":")[1])
-        current_running = get_running_task(user_id)
-        if not current_running:
+    """
+    Scheduler task: checks all users and runs their next pending task if not running.
+    """
+    logger.info("🕒 [SCHEDULER] Checking pending queues...")
+    for user_id in list(USER_PENDING_TASKS.keys()):
+        if not is_user_running(user_id):
             next_task = pop_pending_task(user_id)
             if next_task:
-                print(f"Periodic dispatch for user {user_id}")
-                run_agent_task.delay(next_task['task'], user_id)
+                logger.info(f"➡️ [DISPATCH] User={user_id} -> running next task: {next_task}")
+                run_agent_task.apply_async(args=[user_id, next_task], queue=AGENT_QUEUE)
+    logger.info("📊 [SCHEDULER] Check complete.")
+    return "ok"
+
+
+# ----------------- Beat schedule -----------------
+app.conf.beat_schedule = {
+    "check-pending-queues-every-minute": {
+        "task": "check_pending_queues",
+        "schedule": 60.0,
+    },
+}
